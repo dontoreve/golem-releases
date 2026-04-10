@@ -1,0 +1,64 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.6.2)'
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Clone private repo
+        run: |
+          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/dontoreve/voice-typer.git
+          cd voice-typer
+          git checkout master
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: voice-typer
+        run: npm install
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security add-certificates DeveloperIDG2CA.cer
+          rm certificate.p12 DeveloperIDG2CA.cer
+
+      - name: Build DMG
+        working-directory: voice-typer
+        run: npx electron-builder --mac dmg
+
+      - name: Notarize
+        working-directory: voice-typer
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          DMG_FILE=$(ls dist/*.dmg | head -1)
+          xcrun notarytool submit "$DMG_FILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$DMG_FILE"
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          DMG_FILE=$(ls voice-typer/dist/*.dmg | head -1)
+          gh release upload ${{ inputs.version }} "$DMG_FILE" --repo dontoreve/golem-releases --clobber
