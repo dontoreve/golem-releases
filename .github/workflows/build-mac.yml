@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v1.6.2)'
+        description: 'Version tag (e.g. v1.7.0)'
         required: true
 
 jobs:
@@ -37,28 +37,23 @@ jobs:
           security unlock-keychain -p actions build.keychain
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          # Install Apple intermediate certificate
           curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
           security add-certificates DeveloperIDG2CA.cer
           rm certificate.p12 DeveloperIDG2CA.cer
 
-      - name: Build DMG
-        working-directory: voice-typer
-        run: npx electron-builder --mac dmg
-
-      - name: Notarize
+      - name: Build, sign, notarize, and publish to GitHub release
         working-directory: voice-typer
         env:
+          # Notarization (electron-builder v26 notarize: true reads these automatically)
           APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          DMG_FILE=$(ls dist/*.dmg | head -1)
-          xcrun notarytool submit "$DMG_FILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
-          xcrun stapler staple "$DMG_FILE"
-
-      - name: Upload DMG to release
-        env:
+          # Publish to github.com/dontoreve/golem-releases (auto-creates draft release)
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          DMG_FILE=$(ls voice-typer/dist/*.dmg | head -1)
-          gh release upload ${{ inputs.version }} "$DMG_FILE" --repo dontoreve/golem-releases --clobber
+        run: npx electron-builder --mac --publish always
+
+      - name: Collect artifacts for logs
+        if: always()
+        working-directory: voice-typer
+        run: ls -la dist/ || true
