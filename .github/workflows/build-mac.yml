@@ -96,7 +96,8 @@ jobs:
         if: ${{ github.event.inputs.publish == 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: golem-dmg-${{ github.event.inputs.branch }}
+          # Sanitize branch name — GitHub artifact names reject `/`, `:`, etc.
+          name: golem-dmg-smoke-${{ github.run_id }}
           path: |
             voice-typer/dist/*.dmg
             voice-typer/dist/*.zip
