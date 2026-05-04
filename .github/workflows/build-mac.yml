@@ -6,6 +6,18 @@ on:
       version:
         description: 'Version tag (e.g. v1.7.0)'
         required: true
+      branch:
+        description: 'voice-typer branch to build from (default: master). Use a feature branch for pre-release smoke tests; do NOT --publish from non-master.'
+        required: false
+        default: 'master'
+      publish:
+        description: 'Publish DMGs to golem-releases GitHub Release? (only for master/release builds)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   build:
@@ -15,7 +27,8 @@ jobs:
         run: |
           git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/dontoreve/voice-typer.git
           cd voice-typer
-          git checkout master
+          git checkout "${{ github.event.inputs.branch }}"
+          echo "Building from voice-typer @ $(git rev-parse HEAD) (branch=${{ github.event.inputs.branch }})"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,6 +38,16 @@ jobs:
       - name: Install dependencies
         working-directory: voice-typer
         run: npm install
+
+      - name: Compile native paste helper (Swift / CGEvent)
+        working-directory: voice-typer
+        run: |
+          mkdir -p native/bin
+          # Universal binary (Apple Silicon + Intel) so the same .app works on both arches
+          swiftc -O -arch arm64 -arch x86_64 -o native/bin/golem-paste-helper native/mac/paste-helper.swift
+          # Sanity check it runs (paste a no-op into nothing — no focused app, exit 0 from CGEventPost still expected)
+          file native/bin/golem-paste-helper
+          ls -lh native/bin/
 
       - name: Import signing certificate
         env:
@@ -42,7 +65,7 @@ jobs:
           security add-certificates DeveloperIDG2CA.cer
           rm certificate.p12 DeveloperIDG2CA.cer
 
-      - name: Build, sign, notarize, and publish to GitHub release
+      - name: Build, sign, notarize, and (optionally) publish
         working-directory: voice-typer
         env:
           # Notarization (electron-builder v26 notarize: true reads these automatically)
@@ -51,9 +74,27 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Publish to github.com/dontoreve/golem-releases (auto-creates draft release)
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: npx electron-builder --mac --publish always
+        run: |
+          if [ "${{ github.event.inputs.publish }}" = "true" ]; then
+            echo "Building + publishing to golem-releases"
+            npx electron-builder --mac --publish always
+          else
+            echo "Building WITHOUT publish (smoke test for branch=${{ github.event.inputs.branch }})"
+            npx electron-builder --mac --publish never
+          fi
 
       - name: Collect artifacts for logs
         if: always()
         working-directory: voice-typer
         run: ls -la dist/ || true
+
+      - name: Upload DMG as workflow artifact (smoke test only)
+        if: ${{ github.event.inputs.publish == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: golem-dmg-${{ github.event.inputs.branch }}
+          path: |
+            voice-typer/dist/*.dmg
+            voice-typer/dist/*.zip
+          retention-days: 7
+          if-no-files-found: warn

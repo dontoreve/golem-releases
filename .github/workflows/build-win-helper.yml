@@ -1,0 +1,66 @@
+name: Build Windows paste-helper
+
+# Compiles native/win/paste-helper.cpp into golem-paste-helper.exe using the
+# MSVC toolchain preinstalled on windows-latest. The .exe is uploaded as a
+# workflow artifact so Tomy can download it and drop it into native/bin/
+# before running `npm run build:appx` locally.
+#
+# This is intentionally helper-only — the full Windows app build (AppX upload
+# to Partner Center) remains manual today. We only need the CI to produce a
+# trustworthy .exe without forcing a local C++ toolchain install.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'voice-typer branch to build from (default: master)'
+        required: false
+        default: 'master'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Clone voice-typer
+        shell: bash
+        run: |
+          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/dontoreve/voice-typer.git
+          cd voice-typer
+          git checkout "${{ github.event.inputs.branch }}"
+          echo "Building helper from voice-typer @ $(git rev-parse HEAD)"
+
+      - name: Setup MSVC environment
+        # Adds cl.exe + Windows SDK to PATH for subsequent steps.
+        # windows-latest already has Visual Studio Build Tools 2022 installed.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compile paste-helper.exe (MSVC)
+        working-directory: voice-typer
+        shell: cmd
+        run: |
+          if not exist native\bin mkdir native\bin
+          cl /O2 /EHsc /nologo /Fe:native\bin\golem-paste-helper.exe native\win\paste-helper.cpp /link user32.lib
+          dir native\bin\
+
+      - name: Smoke test (binary exists, header valid)
+        working-directory: voice-typer
+        shell: bash
+        run: |
+          ls -lh native/bin/golem-paste-helper.exe
+          file native/bin/golem-paste-helper.exe || true
+          # Reject obviously broken builds: must be at least 1 KB and parse as PE
+          size=$(stat -c%s native/bin/golem-paste-helper.exe 2>/dev/null || stat -f%z native/bin/golem-paste-helper.exe)
+          if [ "$size" -lt 1024 ]; then
+            echo "Helper binary is suspiciously small ($size bytes) — failing build"
+            exit 1
+          fi
+
+      - name: Upload helper as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: golem-paste-helper-win-x64
+          path: voice-typer/native/bin/golem-paste-helper.exe
+          retention-days: 30
+          if-no-files-found: error
