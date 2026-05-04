@@ -43,9 +43,13 @@ jobs:
         working-directory: voice-typer
         run: |
           mkdir -p native/bin
-          # Universal binary (Apple Silicon + Intel) so the same .app works on both arches
-          swiftc -O -arch arm64 -arch x86_64 -o native/bin/golem-paste-helper native/mac/paste-helper.swift
-          # Sanity check it runs (paste a no-op into nothing — no focused app, exit 0 from CGEventPost still expected)
+          # swiftc does not accept multiple -arch flags directly. Build each
+          # slice via -target and merge with lipo into a universal arm64+x86_64
+          # binary so the same .app runs natively on Apple Silicon and Intel.
+          xcrun -sdk macosx swiftc -O -target arm64-apple-macos11  -o native/bin/golem-paste-helper-arm64 native/mac/paste-helper.swift
+          xcrun -sdk macosx swiftc -O -target x86_64-apple-macos11 -o native/bin/golem-paste-helper-x64   native/mac/paste-helper.swift
+          lipo -create -output native/bin/golem-paste-helper native/bin/golem-paste-helper-arm64 native/bin/golem-paste-helper-x64
+          rm native/bin/golem-paste-helper-arm64 native/bin/golem-paste-helper-x64
           file native/bin/golem-paste-helper
           ls -lh native/bin/
 
