@@ -39,19 +39,15 @@ jobs:
         working-directory: voice-typer
         run: npm install
 
-      - name: Compile native paste helper (Swift / CGEvent)
-        working-directory: voice-typer
-        run: |
-          mkdir -p native/bin
-          # swiftc does not accept multiple -arch flags directly. Build each
-          # slice via -target and merge with lipo into a universal arm64+x86_64
-          # binary so the same .app runs natively on Apple Silicon and Intel.
-          xcrun -sdk macosx swiftc -O -target arm64-apple-macos11  -o native/bin/golem-paste-helper-arm64 native/mac/paste-helper.swift
-          xcrun -sdk macosx swiftc -O -target x86_64-apple-macos11 -o native/bin/golem-paste-helper-x64   native/mac/paste-helper.swift
-          lipo -create -output native/bin/golem-paste-helper native/bin/golem-paste-helper-arm64 native/bin/golem-paste-helper-x64
-          rm native/bin/golem-paste-helper-arm64 native/bin/golem-paste-helper-x64
-          file native/bin/golem-paste-helper
-          ls -lh native/bin/
+      # NOTE 2026-05-04: Mac native paste helper compilation is DISABLED.
+      # Empirically, macOS silently denies CGEvents posted from a child binary
+      # inside Golem.app even when AXIsProcessTrustedWithOptions returns true,
+      # and refuses to show the Accessibility prompt to grant the helper its
+      # own permission. The result is a broken app (paste + AI Transform both
+      # fail silently). See voice-typer/DEBUGGING_LOG.md (2026-05-04 entry)
+      # for the full investigation. Mac stays on osascript via lib/clipboard.js
+      # until we ship the in-process NAPI replacement. The Swift source is
+      # preserved in voice-typer/native/mac/ for that future rewrite.
 
       - name: Import signing certificate
         env:
