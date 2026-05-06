@@ -1,0 +1,76 @@
+name: Build Windows native addon prebuild
+
+# Builds voice-typer/native/addon (golem-paste-addon) into a Windows N-API
+# prebuild (.node file) using the MSVC toolchain preinstalled on
+# windows-latest. The prebuild is uploaded as a workflow artifact so Tomy can
+# download it and drop it into native/addon/prebuilds/win32-x64/ before
+# running `npm run build:appx` locally.
+#
+# Replaces the previous build-win-helper.yml which compiled the standalone
+# golem-paste-helper.exe. As of v1.8.3, the standalone helper is removed in
+# favor of the in-process N-API addon.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'voice-typer branch to build from (default: master)'
+        required: false
+        default: 'master'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Clone voice-typer
+        shell: bash
+        run: |
+          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/dontoreve/voice-typer.git
+          cd voice-typer
+          git checkout "${{ github.event.inputs.branch }}"
+          echo "Building addon prebuild from voice-typer @ $(git rev-parse HEAD)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup MSVC environment
+        # Adds cl.exe + Windows SDK to PATH for node-gyp / prebuildify.
+        # windows-latest already has Visual Studio Build Tools 2022 installed.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install addon dependencies
+        working-directory: voice-typer/native/addon
+        shell: bash
+        run: npm install
+
+      - name: Build .node prebuild (win32-x64)
+        working-directory: voice-typer/native/addon
+        shell: bash
+        run: |
+          npx prebuildify --napi --strip --arch x64
+          ls -lh prebuilds/
+
+      - name: Sanity check
+        working-directory: voice-typer/native/addon
+        shell: bash
+        run: |
+          test -f prebuilds/win32-x64/node.napi.node || (echo "Missing win32-x64 prebuild" && exit 1)
+          # Reject obviously broken builds: must be at least 1 KB
+          size=$(stat -c%s prebuilds/win32-x64/node.napi.node 2>/dev/null || stat -f%z prebuilds/win32-x64/node.napi.node)
+          if [ "$size" -lt 1024 ]; then
+            echo "Prebuild suspiciously small ($size bytes), failing build"
+            exit 1
+          fi
+          echo "win32-x64 prebuild size: $size bytes"
+
+      - name: Upload prebuild as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: golem-paste-addon-win32-x64
+          path: voice-typer/native/addon/prebuilds/win32-x64/
+          retention-days: 30
+          if-no-files-found: error

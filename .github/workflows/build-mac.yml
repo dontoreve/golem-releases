@@ -35,19 +35,30 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
+      - name: Install dependencies (main app)
         working-directory: voice-typer
         run: npm install
 
-      # NOTE 2026-05-04: Mac native paste helper compilation is DISABLED.
-      # Empirically, macOS silently denies CGEvents posted from a child binary
-      # inside Golem.app even when AXIsProcessTrustedWithOptions returns true,
-      # and refuses to show the Accessibility prompt to grant the helper its
-      # own permission. The result is a broken app (paste + AI Transform both
-      # fail silently). See voice-typer/DEBUGGING_LOG.md (2026-05-04 entry)
-      # for the full investigation. Mac stays on osascript via lib/clipboard.js
-      # until we ship the in-process NAPI replacement. The Swift source is
-      # preserved in voice-typer/native/mac/ for that future rewrite.
+      # 2026-05-06 (v1.8.3): The standalone Swift helper is gone. We now ship
+      # an in-process N-API addon at voice-typer/native/addon/ that runs inside
+      # Golem.app's main process, sidestepping the Tahoe TCC silent-drop on
+      # CGEventPost. prebuildify produces a per-arch .node file; electron-builder
+      # bundles it via the package.json files glob + asarUnpack rule.
+      - name: Install addon dependencies
+        working-directory: voice-typer/native/addon
+        run: npm install
+
+      - name: Build native addon prebuilds (darwin arm64 + x64)
+        working-directory: voice-typer/native/addon
+        run: |
+          npx prebuildify --napi --strip --arch arm64
+          npx prebuildify --napi --strip --arch x64
+          echo "Prebuilds produced:"
+          ls -la prebuilds/
+          test -f prebuilds/darwin-arm64/node.napi.node || (echo "Missing darwin-arm64 prebuild" && exit 1)
+          test -f prebuilds/darwin-x64/node.napi.node || (echo "Missing darwin-x64 prebuild" && exit 1)
+          file prebuilds/darwin-arm64/node.napi.node
+          file prebuilds/darwin-x64/node.napi.node
 
       - name: Import signing certificate
         env:
