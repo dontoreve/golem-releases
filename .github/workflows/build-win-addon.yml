@@ -51,8 +51,23 @@ jobs:
         working-directory: voice-typer/native/addon
         shell: bash
         run: |
-          npx prebuildify --napi --strip --arch x64
-          ls -lh prebuilds/
+          # NOTE: no --strip flag. On Windows there's no `strip` binary in PATH
+          # and prebuildify silently fails to write the output when --strip is
+          # set, leaving prebuilds/ empty. The unstripped .node is ~70 KB,
+          # negligible vs the 200 MB Electron app.
+          npx prebuildify --napi --arch x64
+          echo "--- prebuilds/ ---"
+          ls -lhR prebuilds/ || true
+          echo "--- build/Release/ ---"
+          ls -lhR build/Release/ || true
+          # Defensive fallback: if prebuildify did not place the file, copy it
+          # from the node-gyp output directly. This makes the workflow tolerant
+          # to prebuildify version differences.
+          if [ ! -f prebuilds/win32-x64/node.napi.node ] && [ -f build/Release/addon.node ]; then
+            echo "prebuildify output missing, copying build/Release/addon.node into prebuilds/"
+            mkdir -p prebuilds/win32-x64
+            cp build/Release/addon.node prebuilds/win32-x64/node.napi.node
+          fi
 
       - name: Sanity check
         working-directory: voice-typer/native/addon

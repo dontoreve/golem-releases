@@ -51,10 +51,22 @@ jobs:
       - name: Build native addon prebuilds (darwin arm64 + x64)
         working-directory: voice-typer/native/addon
         run: |
-          npx prebuildify --napi --strip --arch arm64
-          npx prebuildify --napi --strip --arch x64
-          echo "Prebuilds produced:"
-          ls -la prebuilds/
+          # No --strip flag (kept simple, matches Windows job behavior).
+          # The .node files are tiny anyway and electron-builder will sign
+          # them inside the .app bundle regardless.
+          npx prebuildify --napi --arch arm64
+          npx prebuildify --napi --arch x64
+          echo "--- prebuilds/ ---"
+          ls -lhR prebuilds/ || true
+          echo "--- build/Release/ ---"
+          ls -lhR build/Release/ || true
+          # Defensive fallback if prebuildify version differences leave
+          # prebuilds/ empty.
+          if [ ! -f prebuilds/darwin-arm64/node.napi.node ] && [ -f build/Release/addon.node ]; then
+            echo "prebuildify output missing for arm64, copying from build/Release/"
+            mkdir -p prebuilds/darwin-arm64
+            cp build/Release/addon.node prebuilds/darwin-arm64/node.napi.node
+          fi
           test -f prebuilds/darwin-arm64/node.napi.node || (echo "Missing darwin-arm64 prebuild" && exit 1)
           test -f prebuilds/darwin-x64/node.napi.node || (echo "Missing darwin-x64 prebuild" && exit 1)
           file prebuilds/darwin-arm64/node.napi.node
