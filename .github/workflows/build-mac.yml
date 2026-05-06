@@ -62,15 +62,19 @@ jobs:
           ls -lhR build/Release/ || true
           # Defensive fallback if prebuildify version differences leave
           # prebuilds/ empty.
-          if [ ! -f prebuilds/darwin-arm64/node.napi.node ] && [ -f build/Release/addon.node ]; then
-            echo "prebuildify output missing for arm64, copying from build/Release/"
-            mkdir -p prebuilds/darwin-arm64
-            cp build/Release/addon.node prebuilds/darwin-arm64/node.napi.node
-          fi
-          test -f prebuilds/darwin-arm64/node.napi.node || (echo "Missing darwin-arm64 prebuild" && exit 1)
-          test -f prebuilds/darwin-x64/node.napi.node || (echo "Missing darwin-x64 prebuild" && exit 1)
-          file prebuilds/darwin-arm64/node.napi.node
-          file prebuilds/darwin-x64/node.napi.node
+          # prebuildify names the file based on package.json name
+          # (golem-paste-addon.node), not the legacy node.napi.node convention.
+          # Check for any .node file in each prebuilds directory.
+          for arch in darwin-arm64 darwin-x64; do
+            node_file=$(ls prebuilds/$arch/*.node 2>/dev/null | head -1)
+            if [ -z "$node_file" ]; then
+              echo "Missing $arch prebuild"
+              ls -la prebuilds/$arch/ || echo "(directory missing)"
+              exit 1
+            fi
+            file "$node_file"
+            echo "$arch prebuild OK: $node_file"
+          done
 
       - name: Import signing certificate
         env:

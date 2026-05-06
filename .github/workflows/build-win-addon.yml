@@ -73,14 +73,22 @@ jobs:
         working-directory: voice-typer/native/addon
         shell: bash
         run: |
-          test -f prebuilds/win32-x64/node.napi.node || (echo "Missing win32-x64 prebuild" && exit 1)
-          # Reject obviously broken builds: must be at least 1 KB
-          size=$(stat -c%s prebuilds/win32-x64/node.napi.node 2>/dev/null || stat -f%z prebuilds/win32-x64/node.napi.node)
-          if [ "$size" -lt 1024 ]; then
-            echo "Prebuild suspiciously small ($size bytes), failing build"
+          # prebuildify names the output file based on the package.json name
+          # field (golem-paste-addon.node) rather than the legacy node.napi.node
+          # convention. node-gyp-build scans the directory at runtime and
+          # accepts either name, so any .node file is fine here.
+          node_file=$(ls prebuilds/win32-x64/*.node 2>/dev/null | head -1)
+          if [ -z "$node_file" ]; then
+            echo "No .node file found in prebuilds/win32-x64/"
+            ls -la prebuilds/win32-x64/ || echo "(directory missing)"
             exit 1
           fi
-          echo "win32-x64 prebuild size: $size bytes"
+          size=$(stat -c%s "$node_file" 2>/dev/null || stat -f%z "$node_file")
+          if [ "$size" -lt 1024 ]; then
+            echo "Prebuild $node_file suspiciously small ($size bytes), failing build"
+            exit 1
+          fi
+          echo "win32-x64 prebuild OK: $node_file ($size bytes)"
 
       - name: Upload prebuild as artifact
         uses: actions/upload-artifact@v4
